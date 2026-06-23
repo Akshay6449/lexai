@@ -61,7 +61,8 @@ async def sync_to_qdrant(
 
 @router.get("/qdrant/stats")
 async def qdrant_stats(current_user: User = Depends(require_any_legal)):
-    return {"message": "Qdrant disabled in local mode.", "vectors_count": 0}
+    from rag.qdrant_client import get_collection_info
+    return get_collection_info()
 
 
 def _to_out(p: Playbook) -> PlaybookOut:

@@ -23,13 +23,21 @@ logger = logging.getLogger(__name__)
 # }
 
 
+def get_qdrant_client():
+    from qdrant_client import QdrantClient
+
+    kwargs: dict = {"url": settings.QDRANT_URL}
+    if settings.QDRANT_API_KEY:
+        kwargs["api_key"] = settings.QDRANT_API_KEY
+    return QdrantClient(**kwargs)
+
+
 async def init_qdrant():
     """Create collection on startup if it doesn't exist."""
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import VectorParams, Distance
 
-        client = QdrantClient(url=settings.QDRANT_URL)
+        client = get_qdrant_client()
         existing = [c.name for c in client.get_collections().collections]
 
         if settings.QDRANT_COLLECTION not in existing:
@@ -80,17 +88,16 @@ async def upsert_playbook_clauses(
     playbook_id: str,
     playbook_name: str,
     contract_type: Optional[str],
-    clauses: list[dict],           # list of {clause_type, title, standard_text}
-) -> int:
+    clauses: list[dict],           # list of {clause_type, title, standard_text, id?}
+) -> dict[str, str]:
     """
     Embeds and upserts playbook clauses into Qdrant.
-    Returns number of vectors upserted.
+    Returns mapping of clause id -> qdrant vector id.
     """
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import PointStruct
 
-        client = QdrantClient(url=settings.QDRANT_URL)
+        client = get_qdrant_client()
         embedder = get_embedder()
 
         texts = [c["standard_text"] for c in clauses]
@@ -117,11 +124,15 @@ async def upsert_playbook_clauses(
 
         client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points)
         logger.info(f"[Qdrant] Upserted {len(points)} vectors for playbook '{playbook_name}'")
-        return len(points)
+        return {
+            clause.get("id", ""): vid
+            for clause, vid in zip(clauses, vector_ids)
+            if clause.get("id")
+        }
 
     except Exception as e:
         logger.error(f"[Qdrant] Upsert failed: {e}")
-        return 0
+        return {}
 
 
 def search_similar_clauses(
@@ -131,10 +142,9 @@ def search_similar_clauses(
 ) -> list[dict]:
     """Synchronous search for use in non-async contexts."""
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        client = QdrantClient(url=settings.QDRANT_URL)
+        client = get_qdrant_client()
         vector = embed_texts([clause_text])[0]
 
         query_filter = None
@@ -166,10 +176,9 @@ def search_similar_clauses(
 async def delete_playbook_vectors(playbook_id: str) -> bool:
     """Remove all vectors for a given playbook (e.g., on playbook update)."""
     try:
-        from qdrant_client import QdrantClient
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        client = QdrantClient(url=settings.QDRANT_URL)
+        client = get_qdrant_client()
         client.delete(
             collection_name=settings.QDRANT_COLLECTION,
             points_selector=Filter(
@@ -186,8 +195,7 @@ async def delete_playbook_vectors(playbook_id: str) -> bool:
 def get_collection_info() -> dict:
     """Return stats about the Qdrant collection."""
     try:
-        from qdrant_client import QdrantClient
-        client = QdrantClient(url=settings.QDRANT_URL)
+        client = get_qdrant_client()
         info = client.get_collection(settings.QDRANT_COLLECTION)
         return {
             "vectors_count": info.vectors_count,

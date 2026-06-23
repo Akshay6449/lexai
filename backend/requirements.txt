@@ -1,44 +1,44 @@
 # ── Core Framework ───────────────────────────────────────────
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.8.2
-pydantic-settings==2.4.0
+fastapi==0.138.0
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.10.1
+email-validator==2.2.0
 
 # ── Database ─────────────────────────────────────────────────
-sqlalchemy==2.0.35
-asyncpg==0.29.0          # async PostgreSQL driver
-alembic==1.13.2
+sqlalchemy==2.0.50
+asyncpg==0.31.0          # async PostgreSQL driver
+alembic==1.15.2
 
 # ── Auth ─────────────────────────────────────────────────────
-python-jose[cryptography]==3.3.0
-bcrypt==4.2.0
+python-jose[cryptography]==3.4.0
+bcrypt==4.2.1
 passlib[bcrypt]==1.7.4
 
-# ── AI / LangChain ───────────────────────────────────────────
-langchain==0.3.1
-langchain-groq==0.2.0
-langchain-community==0.3.1
-langgraph==0.2.28
-langsmith==0.1.128
+# ── AI / LangChain (0.3.x — matches existing agent imports) ──
+langchain==0.3.30
+langchain-groq==0.2.4
+langchain-community==0.3.30
+langgraph==0.2.76
+langsmith==0.3.45
 
 # ── Vector DB ────────────────────────────────────────────────
-qdrant-client==1.11.1
-sentence-transformers==3.1.1
+qdrant-client==1.13.2
+sentence-transformers==3.4.1
 
 # ── Document Processing ──────────────────────────────────────
-PyMuPDF==1.24.10           # PDF parsing (fitz)
+PyMuPDF==1.27.2           # PDF parsing (fitz)
 python-docx==1.1.2         # DOCX parsing
-python-multipart==0.0.12   # file uploads
+python-multipart==0.0.20   # file uploads
 
 # ── Utilities ────────────────────────────────────────────────
-httpx==0.27.2
+httpx==0.28.1
 aiofiles==24.1.0
-python-dotenv==1.0.1
-structlog==24.4.0
+python-dotenv==1.1.0
+structlog==25.1.0
 
 # ── Testing ──────────────────────────────────────────────────
-pytest==8.3.3
-pytest-asyncio==0.24.0
-httpx==0.27.2              # TestClient
-pytest-cov==5.0.0
-factory-boy==3.3.1
+pytest==8.3.5
+pytest-asyncio==0.25.3
+pytest-cov==6.0.0
+factory-boy==3.3.3

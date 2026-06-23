@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # ── Vector DB ────────────────────────────────────────────
     QDRANT_URL: str = "http://qdrant:6333"
+    QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION: str = "lexai_playbooks"
     QDRANT_VECTOR_SIZE: int = 384
 

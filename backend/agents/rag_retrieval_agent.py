@@ -13,6 +13,7 @@ from langsmith import traceable
 
 from core.config import settings
 from agents.clause_classification_agent import ClassifiedClause
+from rag.qdrant_client import search_similar_clauses
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,6 @@ class RAGRetrievalAgent:
 
     def __init__(self):
         self._embedder = None
-        self._qdrant = None
 
     def _get_embedder(self):
         if self._embedder is None:
@@ -57,15 +57,6 @@ class RAGRetrievalAgent:
             except ImportError:
                 logger.warning(f"[{self.name}] sentence-transformers not installed. Using stub embeddings.")
         return self._embedder
-
-    def _get_qdrant(self):
-        if self._qdrant is None:
-            try:
-                from qdrant_client import QdrantClient
-                self._qdrant = QdrantClient(url=settings.QDRANT_URL)
-            except ImportError:
-                logger.warning(f"[{self.name}] qdrant-client not installed.")
-        return self._qdrant
 
     def _embed(self, text: str) -> list[float]:
         embedder = self._get_embedder()
@@ -94,9 +85,27 @@ class RAGRetrievalAgent:
         return results
 
     async def _search(self, clause: ClassifiedClause) -> list[RAGMatch]:
-        return self._stub_matches(clause.clause_type)
+        try:
+            hits = search_similar_clauses(
+                clause.text,
+                clause_type=clause.clause_type,
+                top_k=self.TOP_K,
+            )
+            if hits:
+                return [
+                    RAGMatch(
+                        clause_type=h.get("clause_type", clause.clause_type),
+                        source_title=h.get("title", "Playbook Clause"),
+                        source_playbook=h.get("playbook", "Internal Legal Playbooks"),
+                        standard_text=h.get("standard_text", ""),
+                        similarity_score=h.get("score", 0.0),
+                        qdrant_vector_id=h.get("id", ""),
+                    )
+                    for h in hits
+                ]
+        except Exception as e:
+            logger.warning(f"[{self.name}] Qdrant search failed, using stub: {e}")
 
-        # Stub matches for development / testing
         return self._stub_matches(clause.clause_type)
 
     def _stub_matches(self, clause_type: str) -> list[RAGMatch]:

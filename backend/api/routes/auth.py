@@ -1,7 +1,7 @@
 """
 Auth routes: login, token refresh, logout, me.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr
@@ -61,7 +61,7 @@ async def login(
         raise HTTPException(status_code=403, detail="Account is deactivated.")
 
     # Update last login
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.utcnow()
 
     # Audit
     db.add(AuditLog(

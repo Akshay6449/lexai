@@ -78,7 +78,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui(request: Request):
-    return templates.TemplateResponse("contract-review-platform.html", {"request": request})
+    return templates.TemplateResponse(request, "contract-review-platform.html")
 
 
 # ── API Routes ────────────────────────────────────────────────

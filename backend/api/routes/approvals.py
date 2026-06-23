@@ -2,7 +2,7 @@
 Approval Workflow API — human-in-the-loop review.
 Only legal_manager and admin can approve/reject.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -92,7 +92,7 @@ async def approve_contract(
     approval.reviewed_by = current_user.id
     approval.notes = decision.notes
     approval.conditions = decision.conditions
-    approval.reviewed_at = datetime.now(timezone.utc)
+    approval.reviewed_at = datetime.utcnow()
     approval.contract.status = ContractStatus.approved
 
     db.add(AuditLog(
@@ -119,7 +119,7 @@ async def reject_contract(
     approval.status = ApprovalStatus.rejected
     approval.reviewed_by = current_user.id
     approval.notes = decision.notes
-    approval.reviewed_at = datetime.now(timezone.utc)
+    approval.reviewed_at = datetime.utcnow()
     approval.contract.status = ContractStatus.rejected
 
     db.add(AuditLog(
