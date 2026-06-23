@@ -67,7 +67,18 @@ The classification agent identifies eight clause categories:
 - Intellectual property
 - Governing law
 
+## Technology Approach
+
+LexAI separates concerns across three layers:
+
+- **PostgreSQL** — users, contracts, approvals, playbook text, audit logs (relational, ACID)
+- **Qdrant** — semantic search over playbook clause embeddings (RAG grounding)
+- **LangGraph pipeline** — six specialized agents orchestrated with shared state (extract → classify → retrieve → risk → recommend → approve)
+
+Groq powers LLM steps; LangSmith tracing is optional for debugging. For the full rationale behind each choice and alternatives considered, see **[Design Rationale](design-rationale.md)**.
+
 ## Next Steps
 
+- [Design Rationale](design-rationale.md) — why this stack and architecture
 - [Architecture](architecture.md) — how the system is built
 - [Getting Started](getting-started.md) — run it locally

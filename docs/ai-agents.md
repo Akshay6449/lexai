@@ -10,6 +10,19 @@ extract → classify → rag_retrieve → risk_analyze → recommend → approva
 
 Defined in `backend/agents/pipeline.py`. Each node reads from and writes to `PipelineState` (a TypedDict).
 
+## Why Six Specialized Agents?
+
+Contract review is not a single LLM call. Legal teams extract text, identify clauses, compare to playbooks, score risk, suggest edits, and escalate high-risk deals — each step uses different tools (parsers vs embeddings vs reasoning).
+
+Splitting the pipeline into six agents gives:
+
+- **Deterministic extraction** (Agent 1) without burning LLM tokens on PDF parsing
+- **Retrieval before reasoning** (Agent 3 → Agent 4) so risk scores are grounded in playbook standards
+- **Token efficiency** (Agent 5) — recommendations only where risk warrants rewrites
+- **Per-step audit logs** and optional LangSmith traces for debugging
+
+A single mega-prompt would be harder to test, tune, and explain to legal stakeholders. See [Design Rationale — Six Agents](design-rationale.md#six-agents--why-not-one-or-three) and the pipeline diagram in [Architecture](architecture.md).
+
 ## Agent 1: Document Extraction
 
 **File:** `document_extraction_agent.py`
@@ -158,6 +171,7 @@ When `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set, each agent's `run`
 
 ## Related Docs
 
+- [Design Rationale](design-rationale.md) — why LangGraph, Groq, and six agents
 - [Architecture](architecture.md) — pipeline diagram and data flow
 - [RAG and Qdrant](rag-and-qdrant.md) — vector search detail
 - [Configuration](configuration.md) — Groq and LangSmith settings

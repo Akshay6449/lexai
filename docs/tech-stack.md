@@ -1,5 +1,11 @@
 # Tech Stack
 
+## Why This Stack
+
+LexAI combines a **FastAPI monolith** (UI + REST API), **PostgreSQL** (relational app data), **Qdrant** (playbook vector search), and a **LangGraph six-agent pipeline** (Groq LLM + local embeddings). Each piece solves a distinct problem: auth and workflows in SQL, semantic RAG in a vector DB, multi-step legal analysis in an orchestrated graph. LangSmith adds optional LLM tracing.
+
+Full rationale, alternatives (e.g. pgvector vs Qdrant), and MVP scope notes: **[Design Rationale](design-rationale.md)**.
+
 ## Summary
 
 | Layer | Technology |
@@ -108,5 +114,6 @@ The codebase uses LangChain 0.3-style imports (`from langchain.prompts import Ch
 
 ## Related Docs
 
+- [Design Rationale](design-rationale.md) — why each technology was chosen
 - [Configuration](configuration.md) — API keys and env vars
 - [Getting Started](getting-started.md) — install dependencies

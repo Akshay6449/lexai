@@ -1,5 +1,7 @@
 # Architecture
 
+For full rationale behind technology choices (PostgreSQL, Qdrant, LangGraph, LangSmith, six agents), see **[Design Rationale](design-rationale.md)**.
+
 ## High-Level System View
 
 ```
@@ -132,9 +134,13 @@ The pipeline uses a typed `PipelineState` (TypedDict) carrying:
 |----------|-----------|
 | **Async SQLAlchemy + asyncpg** | Non-blocking DB I/O under concurrent API requests |
 | **RS256 JWT** | Asymmetric signing; public key can be distributed to verifiers |
-| **Qdrant for RAG** | Fast ANN search over playbook clause embeddings |
+| **PostgreSQL for app state** | ACID, joins, RBAC, audit trail — see [Design Rationale](design-rationale.md#postgresql--why-a-relational-database) |
+| **Qdrant for RAG** | ANN search over playbook clause embeddings with payload filters |
+| **Local embeddings** | `all-MiniLM-L6-v2` — no API cost per search; 384-dim matches Qdrant |
 | **Groq for LLM** | Low-latency inference for classification, risk, recommendations |
 | **LangGraph** | Stateful, traceable multi-step agent orchestration |
+| **Six specialized agents** | Mirrors legal workflow; per-step audit and token control — see [Design Rationale](design-rationale.md#six-agents--why-not-one-or-three) |
+| **LangSmith (optional)** | LLM trace visibility in dev; not required for analysis to complete |
 | **Monolithic FastAPI** | Simpler local dev; UI served from same process at `/` |
 | **create_all on startup** | Tables auto-created via `init_db()` without Alembic wiring |
 
@@ -148,6 +154,7 @@ The pipeline uses a typed `PipelineState` (TypedDict) carrying:
 
 ## Related Docs
 
+- [Design Rationale](design-rationale.md) — why each technology was chosen
 - [AI Agents](ai-agents.md) — per-agent detail
 - [Database](database.md) — schema reference
 - [RAG and Qdrant](rag-and-qdrant.md) — vector search setup

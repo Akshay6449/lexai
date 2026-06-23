@@ -4,6 +4,14 @@ LexAI uses **Retrieval-Augmented Generation (RAG)** to compare contract clauses 
 
 Implementation: `backend/rag/qdrant_client.py`, `backend/agents/rag_retrieval_agent.py`
 
+## Why Qdrant?
+
+Playbook standards must be matched **semantically** — a contract clause can paraphrase the standard text. LexAI embeds playbook clauses and contract clauses with the same model, then finds nearest neighbors in Qdrant (cosine similarity, optional `clause_type` filter).
+
+**Why a vector DB:** Purpose-built ANN search with metadata payloads. **Why Qdrant:** Open source, local or cloud deployment, simple Python client — a practical default, not the only option. **pgvector** in Postgres could consolidate stores at LexAI’s scale.
+
+Alternatives and swap boundary (`qdrant_client.py`): [Design Rationale — Qdrant](design-rationale.md#qdrant--why-a-vector-database-for-rag).
+
 ## How RAG Works in LexAI
 
 1. **Seed time:** Standard playbook clauses are embedded and stored in Qdrant.
@@ -130,6 +138,7 @@ If `sentence-transformers` is not installed, the system generates deterministic 
 
 ## Related Docs
 
+- [Design Rationale](design-rationale.md) — why Qdrant vs alternatives
 - [Seed Data](seed-data.md) — seed scripts
 - [Configuration](configuration.md) — Qdrant env vars
 - [AI Agents](ai-agents.md) — Agent 3 detail

@@ -26,6 +26,7 @@ All documentation lives in the **[docs/](docs/)** folder:
 |-----|-------------|
 | [docs/README.md](docs/README.md) | Documentation index |
 | [Overview](docs/overview.md) | Problem statement, use case, roles |
+| [Design Rationale](docs/design-rationale.md) | Why PostgreSQL, Qdrant, LangGraph, six agents |
 | [Architecture](docs/architecture.md) | System design and agent pipeline |
 | [Getting Started](docs/getting-started.md) | First-time local setup |
 | [API Reference](docs/api-reference.md) | REST endpoints |
