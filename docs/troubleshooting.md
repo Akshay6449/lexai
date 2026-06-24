@@ -131,6 +131,41 @@ Affected areas in the codebase: login (`last_login`), approval review (`reviewed
 
 If you see this error after pulling an older branch, restart uvicorn so route changes reload.
 
+## Groq / AI analysis
+
+### Contract analysis fails with "Connection error"
+
+**Symptom:** Executive summary or audit log shows `classification_failed: LLM call failed: Connection error`, zero clauses, or status `error`.
+
+**Cause:** The backend cannot reach `api.groq.com` (network outage, firewall, VPN, or invalid API key).
+
+**Fix:**
+
+1. Check Groq from the same machine running uvicorn:
+   ```text
+   GET http://localhost:8000/health/ai
+   ```
+   Expect `{"groq":"ok",...}`. If `"groq":"error"`, read `detail` for the reason.
+
+2. Verify `GROQ_API_KEY` in `backend/.env` at [console.groq.com](https://console.groq.com).
+
+3. Confirm model is current: `GROQ_MODEL=llama-3.3-70b-versatile` (not decommissioned `llama-3.1-70b-versatile`).
+
+4. Test from PowerShell:
+   ```powershell
+   curl https://api.groq.com/openai/v1/models -H "Authorization: Bearer YOUR_GROQ_KEY"
+   ```
+
+5. After connectivity is restored, open the contract and click **Retry Analysis**.
+
+### Analysis shows many "skipped" messages
+
+**Symptom:** Long error text with `rag_skipped`, `risk_skipped`, etc.
+
+**Cause:** Classification failed first; downstream agents had nothing to process. Newer builds show only the root cause.
+
+**Fix:** Resolve the Groq/network issue above, then **Retry Analysis**.
+
 ## Qdrant
 
 ### Qdrant connection or auth failed

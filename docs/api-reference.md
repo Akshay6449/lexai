@@ -60,22 +60,22 @@ Obtain a token via `POST /api/v1/auth/login`. See [Authentication](authenticatio
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/upload` | Upload PDF/DOCX contract (multipart form) |
-| GET | `/` | List contracts (newest first) |
+| POST | `/upload` | Upload PDF/DOCX contract (multipart form); status → `processing` |
+| GET | `/` | List contracts (newest first); query: `status`, `risk_level`, `contract_type` |
 | GET | `/{contract_id}` | Contract detail |
-| DELETE | `/{contract_id}` | Delete contract and related data |
+| POST | `/{contract_id}/analyze` | Re-run AI pipeline (clears clauses, status → `processing`) |
+| DELETE | `/{contract_id}` | Delete contract and file (uploader or admin only) |
 
 ### Upload form fields
 
 | Field | Type | Required |
 |-------|------|----------|
 | `file` | file | Yes |
-| `name` | string | Yes |
 | `contract_type` | string | Yes (NDA, MSA, SLA, Vendor, Employment) |
 | `counterparty` | string | No |
 | `playbook` | string | No |
 
-Upload triggers the AI pipeline in the background.
+Upload triggers the AI pipeline in the background. On success the contract is `processing` until the pipeline sets `reviewed`, `pending_approval`, or `error`. See [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle).
 
 ## Analysis — `/api/v1/analysis`
 
@@ -123,6 +123,9 @@ Upload triggers the AI pipeline in the background.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/health` | None | `{"status":"ok","version":"1.0.0","service":"lexai-api"}` |
+| GET | `/health/ai` | None | Groq API reachability check (5s timeout); `{"groq":"ok"|"error","detail":"..."}` |
+
+Use `/health/ai` to verify the backend can reach Groq before debugging failed contract analysis. See [Troubleshooting — Groq / AI analysis](troubleshooting.md#groq--ai-analysis).
 
 ## Error Responses
 

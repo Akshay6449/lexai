@@ -101,6 +101,7 @@ See [Seed Data](seed-data.md) for details.
 | Check | URL / Action | Expected |
 |-------|--------------|----------|
 | Health | http://localhost:8000/health | `{"status":"ok",...}` |
+| Groq connectivity | http://localhost:8000/health/ai | `{"groq":"ok",...}` or `"groq":"error"` with `detail` |
 | UI loads | http://localhost:8000/ | Login page (no 500 error) |
 | Login | `admin@lexai.com` / `Admin@1234` | Dashboard loads |
 | API docs | http://localhost:8000/docs | Swagger UI |

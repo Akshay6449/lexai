@@ -58,16 +58,33 @@ Use **↺ Refresh** to reload dashboard data from the API.
 4. Enter **Counterparty name** (optional but recommended)
 5. Click **Upload & Analyze**
 
-The UI uploads the file, runs the analysis pipeline, then opens the **contract detail** view when complete. A toast confirms success or shows errors.
+The UI uploads the file, runs the analysis pipeline in the background, then opens **contract detail** with live polling while status is `processing`. A toast confirms success or shows errors.
 
-**What happens on the server:** document extraction → clause classification → risk scoring → RAG recommendations → optional approval routing for high-risk contracts. See [AI Agents](ai-agents.md).
+- **Remove file (✕)** — clears the selected file before upload
+- **Duplicate file** — if the same file was uploaded before, you get a 409 message; open it from All Contracts or delete it first
+
+**What happens on the server:** document extraction → clause classification → risk scoring → RAG recommendations → optional approval routing for high-risk contracts. See [AI Agents](ai-agents.md) and [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle).
+
+## Contract status (when does each apply?)
+
+| Status | You see it when… |
+|--------|------------------|
+| **processing** | Just uploaded or **Retry Analysis** clicked; detail page polls until analysis finishes |
+| **reviewed** | AI finished; risk score below 80 (default); clauses and summary populated |
+| **pending_approval** | AI finished; high risk (score ≥ 80); contract appears in **Approvals → Pending** for a manager |
+| **approved** | A manager clicked **Approve** on the approval queue |
+| **rejected** | A manager clicked **Reject** |
+| **error** | Analysis failed (e.g. network/Groq); use **Retry Analysis** after fixing connectivity |
+
+Threshold is configurable via `RISK_APPROVAL_THRESHOLD` in `backend/.env` ([Configuration](configuration.md)).
 
 ## All Contracts
 
 Lists every contract you can access, with:
 
 - **Risk level** filter (low / medium / high / critical)
-- **Status** filter (processing, reviewed, pending_approval, approved, rejected)
+- **Status** filter (processing, reviewed, pending_approval, approved, rejected, error)
+- **View** / **Delete** on each row (delete removes the contract and file from disk)
 - **+ Upload** shortcut
 
 Click a contract row to open **Contract detail**.
@@ -86,7 +103,9 @@ Log in as **reviewer@lexai.com** to see contracts uploaded by the seed reviewer 
 
 Opened from the contract list, dashboard recent contracts, or after upload.
 
-**Header** — contract name, counterparty, status, risk badge, and numeric risk score (0–100).
+**Header** — contract name, status badge, counterparty, risk badge, and numeric risk score (0–100). **Delete** removes the contract. **Retry Analysis** appears when status is `error` or after a failed run.
+
+While status is **processing**, a banner shows analysis in progress; the page refreshes every few seconds until clauses appear.
 
 **Tabs:**
 
@@ -106,8 +125,8 @@ Open **Approvals** from the sidebar. Pending items show a red badge on the nav i
 
 For each **pending** contract:
 
-- **✓ Approve** — marks approved (optional conditions via API; UI sends simple approve)
-- **✕ Reject** — prompts for an optional rejection reason
+- **✓ Approve** — contract status becomes **approved**
+- **✕ Reject** — contract status becomes **rejected**; optional rejection reason
 - **View Analysis** — opens contract detail
 
 **Try this flow:**
@@ -134,7 +153,8 @@ The current single-page UI does **not** include separate Playbooks or Users scre
 
 - **Empty dashboard?** Run `python -m scripts.seed` and refresh.
 - **401 / kicked to login?** Token expired — log in again.
-- **Upload fails?** Check uvicorn logs, `OPENAI_API_KEY` (if required by pipeline), and file type/size.
+- **Upload fails?** Check uvicorn logs, `GROQ_API_KEY`, and `GET http://localhost:8000/health/ai`. See [Troubleshooting](troubleshooting.md#groq--ai-analysis).
+- **Analysis stuck or empty?** Hard-refresh the page; use **Retry Analysis** on the contract detail page.
 - **Approvals empty?** Seed creates one pending MSA; filter **Pending** tab and log in as manager.
 
 ## Related Docs

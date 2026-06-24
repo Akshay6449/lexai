@@ -103,16 +103,22 @@ async def node_classify(state: PipelineState) -> dict:
 
     agent = ClauseClassificationAgent()
     try:
-        clauses, tokens = await agent.run(chunks, state["contract_type"])
+        clauses, tokens, classify_error = await agent.run(chunks, state["contract_type"])
+        classified = [
+            {"clause_type": c.clause_type, "text": c.text,
+             "section_ref": c.section_ref, "confidence": c.confidence,
+             "chunk_index": c.chunk_index}
+            for c in clauses
+        ]
+        errors: list[str] = []
+        if not classified:
+            n = len(chunks)
+            detail = classify_error or f"no clauses extracted from {n} chunks"
+            errors.append(f"classification_failed: {detail}")
         return {
-            "classified_clauses": [
-                {"clause_type": c.clause_type, "text": c.text,
-                 "section_ref": c.section_ref, "confidence": c.confidence,
-                 "chunk_index": c.chunk_index}
-                for c in clauses
-            ],
+            "classified_clauses": classified,
             "classification_tokens": tokens,
-            "errors": [],
+            "errors": errors,
         }
     except Exception as e:
         logger.error(f"[node_classify] {e}")
@@ -245,7 +251,17 @@ async def node_approval_workflow(state: PipelineState) -> dict:
     from agents.recommendation_agent import ClauseRecommendation
     from agents.approval_workflow_agent import ApprovalWorkflowAgent
 
+    errors = state.get("errors") or []
     recs = [ClauseRecommendation(**r) for r in (state.get("recommendations") or [])]
+
+    if errors and not recs:
+        return {
+            "requires_approval": False,
+            "executive_summary": None,
+            "routing_reason": "Skipped — upstream analysis did not complete.",
+            "workflow_tokens": 0,
+            "errors": [],
+        }
 
     agent = ApprovalWorkflowAgent()
     try:
@@ -253,8 +269,8 @@ async def node_approval_workflow(state: PipelineState) -> dict:
             contract_name=state["contract_id"],
             contract_type=state["contract_type"],
             counterparty="",
-            risk_score=state.get("contract_risk_score", 0),
-            risk_level=state.get("contract_risk_level", "low"),
+            risk_score=state.get("contract_risk_score") or 0,
+            risk_level=state.get("contract_risk_level") or "low",
             recommendations=recs,
         )
         return {
@@ -345,7 +361,7 @@ async def run_contract_pipeline(
 async def _persist_results(state: PipelineState, contract_id: str, trace_id: str, t0: float):
     """Write all agent results back to PostgreSQL."""
     from core.database import AsyncSessionLocal, Contract, Clause, Approval, AuditLog
-    from core.database import ContractStatus, RiskLevel, ClauseType
+    from core.database import ContractStatus, ClauseType
     from sqlalchemy import select
 
     duration_ms = round((time.perf_counter() - t0) * 1000)
@@ -355,6 +371,11 @@ async def _persist_results(state: PipelineState, contract_id: str, trace_id: str
         state.get("recommendation_tokens"),
         state.get("workflow_tokens"),
     ]))
+
+    errors = state.get("errors") or []
+    had_chunks = bool(state.get("chunks"))
+    clause_payloads = _collect_clause_payloads(state)
+    pipeline_failed = had_chunks and not clause_payloads
 
     async with AsyncSessionLocal() as db:
         contract = (await db.execute(
@@ -367,19 +388,26 @@ async def _persist_results(state: PipelineState, contract_id: str, trace_id: str
 
         contract.risk_score = state.get("contract_risk_score")
         contract.risk_level = state.get("contract_risk_level")
-        contract.executive_summary = state.get("executive_summary")
         contract.langsmith_trace_id = trace_id
         contract.processing_duration_ms = duration_ms
-        contract.ai_confidence = 0.94       # pulled from LangSmith in production
-        contract.status = (
-            ContractStatus.pending_approval
-            if state.get("requires_approval")
-            else ContractStatus.reviewed
-        )
+        contract.ai_confidence = 0.94
 
-        # Persist clauses
-        for rec in (state.get("recommendations") or []):
-            clause = Clause(
+        if pipeline_failed:
+            contract.status = ContractStatus.error
+            contract.executive_summary = _format_pipeline_errors(errors)
+        else:
+            contract.executive_summary = state.get("executive_summary")
+            contract.status = (
+                ContractStatus.pending_approval
+                if state.get("requires_approval")
+                else ContractStatus.reviewed
+            )
+
+        valid_types = {e.value for e in ClauseType}
+        for rec in clause_payloads:
+            if rec["clause_type"] not in valid_types:
+                continue
+            db.add(Clause(
                 contract_id=contract_id,
                 clause_type=rec["clause_type"],
                 section_reference=rec.get("section_ref"),
@@ -387,22 +415,18 @@ async def _persist_results(state: PipelineState, contract_id: str, trace_id: str
                 suggested_text=rec.get("suggested_text"),
                 risk_level=rec.get("risk_level"),
                 risk_score=rec.get("risk_score"),
-                confidence_score=0.94,
-                explanation=rec.get("why_risky"),
+                confidence_score=rec.get("confidence_score", 0.94),
+                explanation=rec.get("explanation") or rec.get("why_risky"),
                 business_impact=rec.get("business_impact"),
                 rag_source=rec.get("rag_source"),
-            )
-            db.add(clause)
+            ))
 
-        # Create approval record if required
-        if state.get("requires_approval"):
-            approval = Approval(
+        if state.get("requires_approval") and not pipeline_failed:
+            db.add(Approval(
                 contract_id=contract_id,
                 requested_by=contract.uploaded_by,
-            )
-            db.add(approval)
+            ))
 
-        # Audit log each agent step
         agent_steps = [
             ("DocumentExtractionAgent", "Document extracted and chunked",
              state.get("extraction_duration_ms"), 0),
@@ -431,10 +455,104 @@ async def _persist_results(state: PipelineState, contract_id: str, trace_id: str
         await db.commit()
         logger.info(
             f"[Pipeline] Persisted contract {contract_id} | "
+            f"status={contract.status.value} | "
+            f"clauses={len(clause_payloads)} | "
             f"risk={state.get('contract_risk_score')} | "
             f"approval={state.get('requires_approval')} | "
             f"{duration_ms}ms | {total_tokens} tokens"
         )
+
+
+def _format_pipeline_errors(errors: list[str]) -> str:
+    """User-facing message: root cause first, omit downstream skip noise."""
+    if not errors:
+        return (
+            "Analysis completed but no clauses could be extracted from this document. "
+            "Use Retry Analysis if the document is a valid contract."
+        )
+
+    root_prefixes = ("extraction_failed", "classification_failed")
+    skip_prefixes = ("rag_skipped", "risk_skipped", "recommend_skipped", "workflow_skipped")
+
+    root = next((e for e in errors if e.startswith(root_prefixes)), None)
+    if root:
+        detail = root.split(": ", 1)[-1] if ": " in root else root
+        return (
+            f"Analysis failed: {detail} "
+            "Use Retry Analysis after fixing connectivity or your GROQ_API_KEY."
+        )
+
+    non_skip = [e for e in errors if not e.startswith(skip_prefixes)]
+    if non_skip:
+        detail = non_skip[0].split(": ", 1)[-1] if ": " in non_skip[0] else non_skip[0]
+        return f"Analysis failed: {detail} Use Retry Analysis to try again."
+
+    return (
+        "Analysis could not complete — upstream steps produced no clause data. "
+        "Use Retry Analysis after checking your network and Groq configuration."
+    )
+
+
+def _collect_clause_payloads(state: PipelineState) -> list[dict]:
+    """Build clause dicts: recommendations first, then risk results, then classified."""
+    valid_types = {
+        "confidentiality", "liability", "indemnification", "termination",
+        "payment", "data_privacy", "intellectual_property", "governing_law",
+    }
+    payloads: list[dict] = []
+    seen: set[str] = set()
+
+    def add(payload: dict) -> None:
+        ct = payload.get("clause_type")
+        if ct not in valid_types:
+            return
+        key = f"{ct}:{payload.get('original_text', '')[:80].lower()}"
+        if key in seen:
+            return
+        seen.add(key)
+        payloads.append(payload)
+
+    for rec in (state.get("recommendations") or []):
+        add({
+            "clause_type": rec["clause_type"],
+            "section_ref": rec.get("section_ref"),
+            "original_text": rec["original_text"],
+            "suggested_text": rec.get("suggested_text"),
+            "risk_level": rec.get("risk_level"),
+            "risk_score": rec.get("risk_score"),
+            "why_risky": rec.get("why_risky"),
+            "business_impact": rec.get("business_impact"),
+            "rag_source": rec.get("rag_source"),
+        })
+
+    if payloads:
+        return payloads
+
+    for rec in (state.get("clause_risk_results") or []):
+        add({
+            "clause_type": rec["clause_type"],
+            "section_ref": rec.get("section_ref"),
+            "original_text": rec["original_text"],
+            "risk_level": rec.get("risk_level"),
+            "risk_score": rec.get("risk_score"),
+            "explanation": rec.get("explanation"),
+            "business_impact": rec.get("business_impact"),
+            "rag_source": rec.get("rag_source"),
+            "confidence_score": rec.get("confidence"),
+        })
+
+    if payloads:
+        return payloads
+
+    for rec in (state.get("classified_clauses") or []):
+        add({
+            "clause_type": rec["clause_type"],
+            "section_ref": rec.get("section_ref"),
+            "original_text": rec["text"],
+            "confidence_score": rec.get("confidence", 0.7),
+        })
+
+    return payloads
 
 
 async def _mark_error(contract_id: str, error: str):

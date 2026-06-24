@@ -146,6 +146,20 @@ erDiagram
 
 `processing` | `reviewed` | `pending_approval` | `approved` | `rejected` | `error`
 
+**Lifecycle (summary):**
+
+| From | To | Trigger |
+|------|-----|---------|
+| — | `processing` | Contract upload or re-analyze |
+| `processing` | `reviewed` | AI pipeline completes; risk score below `RISK_APPROVAL_THRESHOLD` (default 80) |
+| `processing` | `pending_approval` | AI pipeline completes; risk score at or above threshold; `Approval` row created |
+| `processing` | `error` | Pipeline completes but no clauses saved (e.g. extraction/classification failure) |
+| `pending_approval` | `approved` | Legal manager or admin approves via API |
+| `pending_approval` | `rejected` | Legal manager or admin rejects via API |
+| `error` | `processing` | User triggers re-analyze |
+
+See [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle) for the full diagram and UI mapping.
+
 ### RiskLevel
 
 `low` | `medium` | `high` | `critical`

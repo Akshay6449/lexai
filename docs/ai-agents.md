@@ -51,7 +51,7 @@ A single mega-prompt would be harder to test, tune, and explain to legal stakeho
 |---|---|
 | **Input** | Document chunks, contract type |
 | **Output** | List of `ClassifiedClause` objects |
-| **LLM** | Groq — `llama-3.1-70b-versatile` |
+| **LLM** | Groq — `llama-3.3-70b-versatile` |
 
 **Clause types (8):**
 
@@ -166,8 +166,11 @@ When `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` is set, each agent's `run`
 ## Error Handling
 
 - Each pipeline node catches exceptions and appends to `state["errors"]`
-- A failed agent does not crash the entire server — the contract may end in `error` status
-- Partial results are persisted when possible
+- A failed agent does not crash the entire server — the contract may end in `error` status when no clauses can be saved
+- Partial results are persisted when possible (fallback from risk/classification data)
+- On success, status becomes `reviewed` or `pending_approval` depending on risk score vs `RISK_APPROVAL_THRESHOLD`
+
+See [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle).
 
 ## Related Docs
 

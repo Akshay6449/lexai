@@ -58,7 +58,7 @@ QDRANT_API_KEY=
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `GROQ_API_KEY` | string | **required** | Groq API key |
-| `GROQ_MODEL` | string | `llama-3.1-70b-versatile` | LLM model for agents |
+| `GROQ_MODEL` | string | `llama-3.3-70b-versatile` | LLM model for agents |
 | `GROQ_TEMPERATURE` | float | `0.1` | Sampling temperature |
 | `GROQ_MAX_TOKENS` | int | `4096` | Max tokens per LLM call |
 | `EMBEDDING_MODEL` | string | `sentence-transformers/all-MiniLM-L6-v2` | Sentence embedding model |

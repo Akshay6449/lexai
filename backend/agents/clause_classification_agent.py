@@ -90,23 +90,25 @@ class ClauseClassificationAgent:
         self,
         chunks: list[DocumentChunk],
         contract_type: str,
-    ) -> tuple[list[ClassifiedClause], int]:
+    ) -> tuple[list[ClassifiedClause], int, Optional[str]]:
         """
-        Returns (classified_clauses, total_tokens_used).
-        Processes chunks in batches of 5 to fit context window.
+        Returns (classified_clauses, total_tokens_used, error_message).
+        error_message is set when the LLM call or JSON parse fails.
         """
         t0 = time.perf_counter()
         all_clauses: list[ClassifiedClause] = []
         total_tokens = 0
+        last_error: Optional[str] = None
 
         BATCH_SIZE = 5
         for batch_start in range(0, len(chunks), BATCH_SIZE):
             batch = chunks[batch_start: batch_start + BATCH_SIZE]
-            clauses, tokens = await self._classify_batch(batch, contract_type)
+            clauses, tokens, batch_error = await self._classify_batch(batch, contract_type)
             all_clauses.extend(clauses)
             total_tokens += tokens
+            if batch_error:
+                last_error = batch_error
 
-        # Deduplicate by type (keep highest confidence per type)
         deduped = self._deduplicate(all_clauses)
 
         duration_ms = round((time.perf_counter() - t0) * 1000)
@@ -114,18 +116,25 @@ class ClauseClassificationAgent:
             f"[{self.name}] Classified {len(deduped)} clauses "
             f"from {len(chunks)} chunks in {duration_ms}ms ({total_tokens} tokens)"
         )
-        return deduped, total_tokens
+        if chunks and not deduped and not last_error:
+            last_error = (
+                f"no clauses extracted from {len(chunks)} chunks "
+                f"(model={settings.GROQ_MODEL})"
+            )
+            logger.warning(f"[{self.name}] {last_error}")
+        return deduped, total_tokens, last_error
 
     async def _classify_batch(
         self,
         chunks: list[DocumentChunk],
         contract_type: str,
-    ) -> tuple[list[ClassifiedClause], int]:
+    ) -> tuple[list[ClassifiedClause], int, Optional[str]]:
         chunks_text = "\n\n---CHUNK BOUNDARY---\n\n".join(
             f"[Chunk {c.index}]{' ' + c.section_ref if c.section_ref else ''}\n{c.text}"
             for c in chunks
         )
 
+        raw = ""
         try:
             response = await self.chain.ainvoke({
                 "contract_type": contract_type,
@@ -152,14 +161,17 @@ class ClauseClassificationAgent:
                     confidence=float(item.get("confidence", 0.7)),
                     chunk_index=int(item.get("chunk_index", 0)),
                 ))
-            return clauses, tokens
+            return clauses, tokens, None
 
         except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"[{self.name}] JSON parse error: {e}")
-            return [], 0
+            preview = raw[:200]
+            msg = f"JSON parse error: {e}"
+            logger.error(f"[{self.name}] {msg} | model={settings.GROQ_MODEL} | response={preview!r}")
+            return [], 0, msg
         except Exception as e:
-            logger.error(f"[{self.name}] LLM call failed: {e}")
-            return [], 0
+            msg = f"LLM call failed: {e} (model={settings.GROQ_MODEL})"
+            logger.error(f"[{self.name}] {msg}")
+            return [], 0, msg
 
     def _deduplicate(self, clauses: list[ClassifiedClause]) -> list[ClassifiedClause]:
         """Keep all clauses but remove near-identical duplicates (same type + first 80 chars)."""

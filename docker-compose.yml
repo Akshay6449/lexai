@@ -31,7 +31,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION: lexai_playbooks
       GROQ_API_KEY: ${GROQ_API_KEY}
-      GROQ_MODEL: llama-3.1-70b-versatile
+      GROQ_MODEL: llama-3.3-70b-versatile
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
       LANGSMITH_PROJECT: lexai-production
       LANGSMITH_TRACING: "true"

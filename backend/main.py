@@ -24,6 +24,11 @@ templates = Jinja2Templates(directory="templates")
 async def lifespan(app: FastAPI):
     logger.info("Starting LexAI platform...")
     await init_db()
+    try:
+        from rag.qdrant_client import init_qdrant
+        await init_qdrant()
+    except Exception as e:
+        logger.warning(f"[Qdrant] Startup check failed: {e}")
     logger.info("LexAI platform ready.")
     yield
     logger.info("Shutting down LexAI platform.")
@@ -95,3 +100,29 @@ app.include_router(dashboard.router,  prefix="/api/v1/dashboard",  tags=["Dashbo
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "ok", "version": "1.0.0", "service": "lexai-api"}
+
+
+@app.get("/health/ai", tags=["Health"])
+async def health_ai():
+    """Verify Groq API reachability from this server (5s timeout)."""
+    import httpx
+
+    if not settings.GROQ_API_KEY:
+        return {"groq": "error", "detail": "GROQ_API_KEY is not configured"}
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                "https://api.groq.com/openai/v1/models",
+                headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
+            )
+        if response.status_code == 200:
+            return {"groq": "ok", "detail": "Groq API reachable", "model": settings.GROQ_MODEL}
+        return {
+            "groq": "error",
+            "detail": f"Groq returned HTTP {response.status_code}",
+        }
+    except httpx.TimeoutException:
+        return {"groq": "error", "detail": "Groq API timed out after 5s"}
+    except Exception as e:
+        return {"groq": "error", "detail": str(e)}

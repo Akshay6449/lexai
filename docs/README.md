@@ -82,9 +82,10 @@ Understand the product without diving into implementation.
 | Step | Doc | Why read it |
 |------|-----|-------------|
 | 1 | [Overview](overview.md) | Problem, use case, roles |
-| 2 | [UI Walkthrough](ui-walkthrough.md) | Screens and demo login flow |
-| 3 | [Design Rationale](design-rationale.md) | Six-agent workflow in plain terms (§ Six Agents) |
-| 4 | [Seed Data](seed-data.md) | Demo accounts and sample contracts |
+| 2 | [UI Walkthrough](ui-walkthrough.md) | Screens, demo login flow, contract statuses |
+| 3 | [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle) | When reviewed vs pending approval vs approved |
+| 4 | [Design Rationale](design-rationale.md) | Six-agent workflow in plain terms (§ Six Agents) |
+| 5 | [Seed Data](seed-data.md) | Demo accounts and sample contracts |
 
 ### Quick reference (anytime)
 
@@ -94,6 +95,8 @@ Understand the product without diving into implementation.
 | Dependency versions | [Tech Stack](tech-stack.md) |
 | UI implementation | [Frontend](frontend.md) |
 | Something broken | [Troubleshooting](troubleshooting.md) |
+| Contract statuses / approval flow | [Architecture — Contract status lifecycle](architecture.md#contract-status-lifecycle) |
+| Groq / analysis errors | [Troubleshooting — Groq / AI analysis](troubleshooting.md#groq--ai-analysis) |
 
 ## Recommended Reading Order
 
@@ -112,3 +115,4 @@ Short lists if you prefer a minimal checklist.
 - **App UI:** http://localhost:8000/
 - **Swagger API:** http://localhost:8000/docs
 - **Health check:** http://localhost:8000/health
+- **Groq connectivity:** http://localhost:8000/health/ai

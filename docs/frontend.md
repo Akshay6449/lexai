@@ -22,8 +22,8 @@ The UI is a single HTML file with client-side view switching:
 | Login | Email/password form with quick-login buttons |
 | Dashboard | Stats cards, risk chart, recent activity |
 | Upload Contract | PDF/DOCX upload and analysis trigger |
-| All Contracts | Contract list with risk/status filters |
-| Contract detail | Clause analysis, executive summary, audit log |
+| All Contracts | Contract list with risk/status filters; View and Delete per row |
+| Contract detail | Clause analysis, executive summary, audit log; polling while `processing`; Retry Analysis on `error`; Delete |
 | Approvals | Pending approval queue with approve/reject (manager+) |
 
 Navigation is handled via JavaScript showing/hiding DOM sections.

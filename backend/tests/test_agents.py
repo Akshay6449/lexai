@@ -96,11 +96,12 @@ class TestClauseClassificationAgent:
         agent = ClauseClassificationAgent()
         with patch.object(agent.chain, "ainvoke", return_value=mock_groq_response(valid_response)):
             chunks = [DocumentChunk(0, "Neither party shall be liable for damages.", 0, 50)]
-            clauses, tokens = await agent.run(chunks, "NDA")
+            clauses, tokens, err = await agent.run(chunks, "NDA")
 
         assert len(clauses) == 1
         assert clauses[0].clause_type == "liability"
         assert clauses[0].confidence == 0.97
+        assert err is None
 
     @pytest.mark.asyncio
     async def test_classify_handles_invalid_json(self, mock_groq_response):
@@ -110,9 +111,10 @@ class TestClauseClassificationAgent:
         agent = ClauseClassificationAgent()
         with patch.object(agent.chain, "ainvoke", return_value=mock_groq_response("not json")):
             chunks = [DocumentChunk(0, "Some text.", 0, 10)]
-            clauses, tokens = await agent.run(chunks, "NDA")
+            clauses, tokens, err = await agent.run(chunks, "NDA")
 
-        assert clauses == []     # graceful fallback
+        assert clauses == []
+        assert err is not None
 
     def test_deduplication(self):
         from agents.clause_classification_agent import ClauseClassificationAgent, ClassifiedClause

@@ -38,6 +38,7 @@ All documentation lives in the **[docs/](docs/)** folder:
 - **App UI:** http://localhost:8000/
 - **API Docs:** http://localhost:8000/docs
 - **Health:** http://localhost:8000/health
+- **Groq check:** http://localhost:8000/health/ai
 
 ## Optional: Docker
 

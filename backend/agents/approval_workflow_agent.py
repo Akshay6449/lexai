@@ -82,6 +82,8 @@ class ApprovalWorkflowAgent:
     ) -> WorkflowResult:
         t0 = time.perf_counter()
 
+        risk_score = 0 if risk_score is None else int(risk_score)
+        risk_level = risk_level or "low"
         requires_approval = risk_score >= self.threshold
         summary_data, tokens = await self._generate_summary(
             contract_name, contract_type, counterparty,
@@ -113,7 +115,7 @@ class ApprovalWorkflowAgent:
         requires_approval: bool,
     ) -> tuple[dict, int]:
         # Summarize high/critical clauses for the prompt
-        high_risk = [r for r in recommendations if r.risk_score >= 51]
+        high_risk = [r for r in recommendations if (r.risk_score or 0) >= 51]
         risk_clauses_text = "\n".join(
             f"- {r.clause_type.upper()} (score {r.risk_score}): {r.why_risky}"
             for r in high_risk[:5]

@@ -346,11 +346,12 @@ canvas{max-height:220px;}
           <div id="file-preview" style="display:none;margin-top:12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;">
             <div style="display:flex;align-items:center;gap:12px;">
               <span style="font-size:20px;">📄</span>
-              <div>
+              <div style="flex:1;">
                 <div style="font-size:13px;font-weight:500;color:var(--text-primary);" id="file-name-display"></div>
                 <div style="font-size:11.5px;color:var(--text-muted);" id="file-size-display"></div>
               </div>
-              <span class="badge badge-approved" style="margin-left:auto;">Ready</span>
+              <span class="badge badge-approved">Ready</span>
+              <button type="button" class="btn btn-ghost btn-sm" onclick="clearSelectedFile()" title="Remove file" style="padding:4px 8px;">✕</button>
             </div>
           </div>
           <div class="card" style="margin-top:16px;padding:20px;">
@@ -446,8 +447,11 @@ canvas{max-height:220px;}
         <div class="header-actions">
           <div id="detail-risk-badge"></div>
           <div id="detail-risk-score" style="font-size:24px;font-weight:700;margin-left:8px;"></div>
+          <button class="btn btn-ghost btn-sm" id="detail-retry-btn" style="display:none;" onclick="reanalyzeContract()">↺ Retry Analysis</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteContract(currentContractId, document.getElementById('detail-contract-name').textContent)">Delete</button>
         </div>
       </div>
+      <div id="detail-status-banner" style="display:none;margin-bottom:16px;"></div>
       <div class="tabs">
         <div class="tab active" onclick="switchTab(this,'tab-clauses')">Clauses</div>
         <div class="tab" onclick="switchTab(this,'tab-summary')">Executive Summary</div>
@@ -502,6 +506,29 @@ let CURRENT_USER = JSON.parse(localStorage.getItem('lexai_user') || 'null');
 let isDark = true;
 let riskChartInst = null, monthlyChartInst = null;
 let currentContractId = null;
+let contractPollTimer = null;
+let contractPollCount = 0;
+const CONTRACT_POLL_MAX = 60;
+
+function formatApiError(detail) {
+  if (!detail) return 'Request failed';
+  if (typeof detail === 'string') {
+    if (detail.includes('Duplicate contract')) {
+      return 'This file was already uploaded. Open it from All Contracts or delete it first.';
+    }
+    return detail;
+  }
+  if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+  return String(detail);
+}
+
+function stopContractPolling() {
+  if (contractPollTimer) {
+    clearInterval(contractPollTimer);
+    contractPollTimer = null;
+  }
+  contractPollCount = 0;
+}
 
 // ── API HELPER ────────────────────────────────────────────────
 async function api(method, path, body = null, isForm = false) {
@@ -513,7 +540,7 @@ async function api(method, path, body = null, isForm = false) {
   if (res.status === 401) { doLogout(); return null; }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(err.detail || 'Request failed');
+    throw new Error(formatApiError(err.detail));
   }
   if (res.status === 204) return null;
   return res.json();
@@ -605,6 +632,7 @@ if (TOKEN && CURRENT_USER) {
 
 // ── PAGES ─────────────────────────────────────────────────────
 function showPage(id) {
+  if (id !== 'detail') stopContractPolling();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const page = document.getElementById('page-' + id);
@@ -764,7 +792,8 @@ async function loadContracts() {
         <td><span style="font-family:monospace;font-weight:600;color:${riskColor(c.risk_level)}">${c.risk_score ?? '—'}</span></td>
         <td>${statusBadge(c.status)}</td>
         <td style="font-size:11px;color:var(--text-muted);">${formatDate(c.created_at)}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="openContract('${c.id}')">View</button></td>
+        <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); openContract('${c.id}')">View</button>
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteContract('${c.id}')">Delete</button></td>
       </tr>`).join('')}
     </tbody></table>`;
   } catch(e) {
@@ -780,41 +809,138 @@ function searchContracts() {
 }
 
 // ── CONTRACT DETAIL ───────────────────────────────────────────
+function renderDetailBanner(contract) {
+  const banner = document.getElementById('detail-status-banner');
+  const retryBtn = document.getElementById('detail-retry-btn');
+  if (!banner) return;
+  retryBtn.style.display = 'none';
+  if (contract.status === 'processing') {
+    banner.style.display = 'block';
+    banner.className = 'card';
+    banner.style.padding = '14px 18px';
+    banner.innerHTML = '<div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);"><span class="loading-spinner"></span> AI analysis in progress — clauses and summary will appear automatically…</div>';
+  } else if (contract.status === 'error') {
+    banner.style.display = 'block';
+    banner.className = 'error-msg';
+    banner.innerHTML = esc(contract.executive_summary || 'Analysis failed. Try again or check server logs.');
+    retryBtn.style.display = 'inline-flex';
+  } else {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+  }
+}
+
+async function loadContractDetail(id) {
+  const [contract, clauses, risk, summary, audit] = await Promise.all([
+    api('GET', '/contracts/' + id),
+    api('GET', '/analysis/' + id + '/clauses'),
+    api('GET', '/analysis/' + id + '/risk'),
+    api('GET', '/analysis/' + id + '/summary'),
+    api('GET', '/analysis/' + id + '/audit'),
+  ]);
+  if (contract) {
+    document.getElementById('detail-contract-name').textContent = contract.name;
+    document.getElementById('detail-contract-meta').innerHTML =
+      statusBadge(contract.status) + ' · ' + contract.contract_type + ' · ' + esc(contract.counterparty || '—') + ' · ' + formatDate(contract.created_at);
+    document.getElementById('detail-risk-badge').innerHTML = riskBadge(contract.risk_level);
+    document.getElementById('detail-risk-score').style.color = riskColor(contract.risk_level);
+    document.getElementById('detail-risk-score').textContent = contract.risk_score != null ? 'Score: ' + contract.risk_score : '';
+    renderDetailBanner(contract);
+  }
+  renderClauses(clauses || [], contract);
+  renderSummary(summary, contract);
+  renderAudit(audit || []);
+  return contract;
+}
+
+function startContractPolling(id) {
+  stopContractPolling();
+  contractPollCount = 0;
+  contractPollTimer = setInterval(async () => {
+    if (currentContractId !== id) { stopContractPolling(); return; }
+    contractPollCount++;
+    if (contractPollCount > CONTRACT_POLL_MAX) {
+      stopContractPolling();
+      showToast('Analysis is taking longer than expected. Use Retry Analysis.', 'error');
+      return;
+    }
+    try {
+      const contract = await loadContractDetail(id);
+      if (contract && contract.status !== 'processing') {
+        stopContractPolling();
+        if (contract.status === 'reviewed' || contract.status === 'pending_approval') {
+          showToast('Analysis complete.');
+        }
+      }
+    } catch (e) { /* keep polling */ }
+  }, 3000);
+}
+
 async function openContract(id) {
   currentContractId = id;
+  stopContractPolling();
   showPage('detail');
   document.getElementById('detail-contract-name').textContent = 'Loading...';
+  document.getElementById('detail-status-banner').style.display = 'none';
   document.getElementById('clauses-content').innerHTML = '<div class="empty-state"><div class="loading-spinner"></div></div>';
   document.getElementById('summary-content').innerHTML = '<div class="empty-state"><div class="loading-spinner"></div></div>';
   document.getElementById('audit-content').innerHTML = '<div class="empty-state"><div class="loading-spinner"></div></div>';
   try {
-    const [contract, clauses, risk, summary, audit] = await Promise.all([
-      api('GET', '/contracts/' + id),
-      api('GET', '/analysis/' + id + '/clauses'),
-      api('GET', '/analysis/' + id + '/risk'),
-      api('GET', '/analysis/' + id + '/summary'),
-      api('GET', '/analysis/' + id + '/audit'),
-    ]);
-    if (contract) {
-      document.getElementById('detail-contract-name').textContent = contract.name;
-      document.getElementById('detail-contract-meta').textContent =
-        contract.contract_type + ' · ' + (contract.counterparty || '') + ' · ' + formatDate(contract.created_at);
-      document.getElementById('detail-risk-badge').innerHTML = riskBadge(contract.risk_level);
-      document.getElementById('detail-risk-score').style.color = riskColor(contract.risk_level);
-      document.getElementById('detail-risk-score').textContent = contract.risk_score != null ? 'Score: ' + contract.risk_score : '';
+    const contract = await loadContractDetail(id);
+    if (contract && contract.status === 'processing') {
+      startContractPolling(id);
     }
-    renderClauses(clauses || []);
-    renderSummary(summary, contract);
-    renderAudit(audit || []);
   } catch(e) {
-    document.getElementById('clauses-content').innerHTML = '<div class="error-msg">' + e.message + '</div>';
+    document.getElementById('clauses-content').innerHTML = '<div class="error-msg">' + esc(e.message) + '</div>';
   }
 }
 
-function renderClauses(clauses) {
+async function reanalyzeContract() {
+  if (!currentContractId) return;
+  const btn = document.getElementById('detail-retry-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Retrying...';
+  try {
+    await api('POST', '/contracts/' + currentContractId + '/analyze');
+    showToast('Analysis restarted.');
+    await openContract(currentContractId);
+  } catch(e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '↺ Retry Analysis';
+  }
+}
+
+async function deleteContract(id, name) {
+  if (!id) return;
+  const label = name ? 'Delete contract "' + name + '"?' : 'Delete this contract?';
+  if (!confirm(label + ' This cannot be undone.')) return;
+  try {
+    await api('DELETE', '/contracts/' + id);
+    showToast('Contract deleted.');
+    if (currentContractId === id) {
+      stopContractPolling();
+      currentContractId = null;
+      showPage('contracts');
+    } else {
+      loadContracts();
+    }
+    loadDashboard();
+  } catch(e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function renderClauses(clauses, contract) {
   const el = document.getElementById('clauses-content');
   if (!clauses.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏷</div><div class="empty-state-text">No clauses extracted yet. Contract may still be processing.</div></div>';
+    const msg = contract?.status === 'processing'
+      ? 'Analysis in progress — clauses will appear shortly…'
+      : contract?.status === 'error'
+        ? 'No clauses extracted. Use Retry Analysis or check the Executive Summary for details.'
+        : 'No clauses extracted yet.';
+    el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🏷</div><div class="empty-state-text">' + msg + '</div></div>';
     return;
   }
   el.innerHTML = `<div style="display:grid;grid-template-columns:280px 1fr;gap:20px;">
@@ -889,7 +1015,13 @@ function selectClause(i) {
 function renderSummary(summary, contract) {
   const el = document.getElementById('summary-content');
   if (!summary) { el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">Summary not available yet.</div></div>'; return; }
+  const summaryText = summary.executive_summary
+    || (contract?.status === 'processing' ? 'Contract is still being processed by the AI pipeline.' : 'Summary not available yet.');
+  const errorBanner = contract?.status === 'error'
+    ? `<div class="error-msg" style="margin-bottom:16px;">${esc(summaryText)}</div>`
+    : '';
   el.innerHTML = `
+    ${errorBanner}
     <div style="display:flex;gap:12px;margin-bottom:20px;">
       <div style="flex:1;background:var(--bg-elevated);border-radius:8px;padding:16px;text-align:center;">
         <div style="font-size:28px;font-weight:700;color:${riskColor(summary.risk_level)};">${summary.risk_score ?? '—'}</div>
@@ -901,7 +1033,7 @@ function renderSummary(summary, contract) {
       </div>
       <div style="flex:2;background:var(--bg-elevated);border-radius:8px;padding:16px;">
         <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">Executive Summary</div>
-        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">${summary.executive_summary ? esc(summary.executive_summary) : 'Contract is still being processed by the AI pipeline.'}</div>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">${contract?.status === 'error' ? 'See error details above.' : esc(summaryText)}</div>
       </div>
     </div>
     ${contract?.status === 'pending_approval' ? `<div style="padding:14px;background:var(--critical-bg);border:1px solid rgba(220,38,38,0.15);border-radius:8px;font-size:13px;color:var(--critical);margin-bottom:16px;">⚠ This contract requires Legal Manager approval before execution.</div>` : ''}`;
@@ -940,6 +1072,13 @@ function showFilePreview(file) {
   document.getElementById('file-size-display').textContent = (file.size/1024/1024).toFixed(2) + ' MB · ' + (file.name.endsWith('.pdf') ? 'PDF' : 'DOCX');
 }
 
+function clearSelectedFile() {
+  window._uploadFile = null;
+  document.getElementById('file-preview').style.display = 'none';
+  document.getElementById('file-input').value = '';
+  document.getElementById('upload-error').style.display = 'none';
+}
+
 async function uploadContract() {
   const file = window._uploadFile;
   const errEl = document.getElementById('upload-error');
@@ -957,14 +1096,13 @@ async function uploadContract() {
     if (counterparty) form.append('counterparty', counterparty);
     const result = await api('POST', '/contracts/upload', form, true);
     showToast('Contract uploaded! AI analysis started in background.');
-    window._uploadFile = null;
-    document.getElementById('file-preview').style.display = 'none';
-    document.getElementById('file-input').value = '';
+    clearSelectedFile();
     document.getElementById('upload-counterparty').value = '';
     setTimeout(() => openContract(result.id), 1000);
   } catch(e) {
     errEl.textContent = e.message;
     errEl.style.display = 'block';
+    if (e.message.includes('already uploaded')) clearSelectedFile();
   } finally {
     btn.innerHTML = '⚡ Upload &amp; Analyze';
     btn.disabled = false;
@@ -1038,7 +1176,7 @@ function riskColor(level) {
 }
 function statusBadge(status) {
   const map = { processing:'badge-processing', reviewed:'badge-info', pending_approval:'badge-pending', approved:'badge-approved', rejected:'badge-rejected', error:'badge-critical' };
-  return `<span class="badge ${map[status]||'badge-info'}">${(status||'').replace('_',' ')}</span>`;
+  return `<span class="badge ${map[status]||'badge-info'}">${(status||'').replace(/_/g,' ')}</span>`;
 }
 function esc(str) {
   if (!str) return '';

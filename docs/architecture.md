@@ -72,8 +72,36 @@ flowchart TB
 3. **Background task** invokes the LangGraph pipeline with `contract_id`, `file_path`, and `contract_type`.
 4. **Pipeline** runs six agents sequentially, accumulating state.
 5. **Results** are persisted: `Clause` rows, risk scores, executive summary, optional `Approval` record.
-6. **Contract status** updates to `reviewed`, `pending_approval`, or `error`.
+6. **Contract status** updates to `reviewed`, `pending_approval`, or `error` (see [Contract status lifecycle](#contract-status-lifecycle) below).
 7. **Audit logs** record each agent step with duration and token usage.
+
+## Contract status lifecycle
+
+Each contract moves through statuses defined in `ContractStatus` ([Database](database.md)). Human approval is only required when the AI risk score meets the configured threshold.
+
+```mermaid
+stateDiagram-v2
+    [*] --> processing: Upload or Retry Analysis
+    processing --> error: Pipeline fails
+    processing --> reviewed: AI complete, risk below threshold
+    processing --> pending_approval: AI complete, risk at or above threshold
+    pending_approval --> approved: Manager approves
+    pending_approval --> rejected: Manager rejects
+    error --> processing: Retry Analysis
+```
+
+| Status | When it is set | What it means |
+|--------|----------------|---------------|
+| `processing` | Upload (`POST /contracts/upload`) or re-analyze (`POST /contracts/{id}/analyze`) | File saved; LangGraph pipeline running in a background task |
+| `reviewed` | Pipeline succeeds and `contract_risk_score` **&lt;** `RISK_APPROVAL_THRESHOLD` (default **80**) | AI analysis complete; clauses and summary available; no manager step |
+| `pending_approval` | Pipeline succeeds and risk score **≥** threshold | High-risk contract; an `Approval` row is created; appears in **Approvals → Pending** |
+| `approved` | Manager/admin calls `POST /approvals/{id}/approve` | Human sign-off recorded; contract ready from a legal workflow perspective |
+| `rejected` | Manager/admin calls `POST /approvals/{id}/reject` | Manager declined the contract |
+| `error` | Pipeline finishes but no clauses could be persisted (e.g. Groq failure, empty extraction) | User can fix connectivity and use **Retry Analysis** in the UI |
+
+**Approval routing** is decided by Agent 6 (`ApprovalWorkflowAgent`) in `backend/agents/approval_workflow_agent.py`: `requires_approval = risk_score >= RISK_APPROVAL_THRESHOLD`. Persist logic is in `backend/agents/pipeline.py` (`_persist_results`).
+
+**Not automatic:** viewing clauses, requesting changes on an approval (notes only), or deleting a contract do not change contract status.
 
 ## Multi-Agent Pipeline
 
@@ -89,7 +117,7 @@ Document Upload
 └────────┬────────┘
          ▼
 ┌─────────────────┐
-│ Agent 2:        │  Groq LLaMA 3.1 70B
+│ Agent 2:        │  Groq LLaMA 3.3 70B
 │ Clause Classify │  8 clause types
 └────────┬────────┘
          ▼

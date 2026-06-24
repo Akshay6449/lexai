@@ -3,6 +3,7 @@ Contracts API — upload, list, get, delete.
 File validation, SHA-256 dedup, async agent trigger.
 """
 import hashlib
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -10,17 +11,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.orm import selectinload
 
 from auth.jwt_handler import get_current_user, require_any_legal
 from core.config import settings
 from core.database import (
     AsyncSession, get_db, Contract, ContractStatus, ContractType,
-    RiskLevel, User, AuditLog
+    RiskLevel, User, AuditLog, Clause
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ── Schemas ──────────────────────────────────────────────────
@@ -125,15 +127,56 @@ async def upload_contract(
     background_tasks.add_task(_run_agent_pipeline, str(contract.id), file_path, ct.value)
 
     await db.commit()
-    await db.refresh(contract)
-
+    contract = await _get_or_404(str(contract.id), db)
     return _to_detail(contract)
 
 
 async def _run_agent_pipeline(contract_id: str, file_path: str, contract_type: str):
     """Background task — runs the full LangGraph agent pipeline."""
-    from agents.pipeline import run_contract_pipeline
-    await run_contract_pipeline(contract_id, file_path, contract_type)
+    try:
+        from agents.pipeline import run_contract_pipeline
+        await run_contract_pipeline(contract_id, file_path, contract_type)
+    except Exception:
+        logger.exception(f"[Pipeline] Background task failed for contract {contract_id}")
+
+
+def _authorize_contract_mutation(contract: Contract, user: User) -> None:
+    if str(contract.uploaded_by) != str(user.id) and user.role != "admin":
+        raise HTTPException(403, "Not authorized to modify this contract.")
+
+
+@router.post("/{contract_id}/analyze", response_model=ContractDetail)
+async def reanalyze_contract(
+    contract_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(require_any_legal),
+    db: AsyncSession = Depends(get_db),
+):
+    contract = await _get_or_404(contract_id, db)
+    _authorize_contract_mutation(contract, current_user)
+
+    if not os.path.exists(contract.file_path):
+        raise HTTPException(404, "Contract file not found on disk. Re-upload the document.")
+
+    await db.execute(delete(Clause).where(Clause.contract_id == contract.id))
+    contract.status = ContractStatus.processing
+    contract.risk_score = None
+    contract.risk_level = None
+    contract.executive_summary = None
+    contract.ai_confidence = None
+    contract.langsmith_trace_id = None
+    contract.processing_duration_ms = None
+    await db.flush()
+
+    background_tasks.add_task(
+        _run_agent_pipeline,
+        str(contract.id),
+        contract.file_path,
+        contract.contract_type.value,
+    )
+    await db.commit()
+    contract = await _get_or_404(contract_id, db)
+    return _to_detail(contract)
 
 
 @router.get("", response_model=list[ContractSummary])
@@ -175,9 +218,7 @@ async def delete_contract(
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _get_or_404(contract_id, db)
-    # Only uploader or admin can delete
-    if str(contract.uploaded_by) != str(current_user.id) and current_user.role != "admin":
-        raise HTTPException(403, "Not authorized to delete this contract.")
+    _authorize_contract_mutation(contract, current_user)
     # Remove file
     if os.path.exists(contract.file_path):
         os.remove(contract.file_path)
